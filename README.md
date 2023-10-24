@@ -11,7 +11,7 @@
 
 #### 服务端socket
 function: 处理连接请求
-也可以称呼为 接电话socket，lisenting socket，主要步骤就是模拟接电话的行为
+也可以称呼为 接电话socket，listening socket，主要步骤就是模拟接电话的行为
 
 1. 调用socket函数创建socket (安装telephone)
 2. 调用bind函数分配id地址和端口号（分配电话号码）
@@ -48,7 +48,7 @@ function：请求连接
 协议是对话中使用的通信规则，在计算机领域里，就是 计算机间对话的通信规则
 
 ### socket函数的参数
-`int socekt(int domain, int type, int protocol);`
+`int socket(int domain, int type, int protocol);`
 
 1. domain: socket中使用的协议族信息
 2. type：socket数据传输类型
@@ -58,11 +58,11 @@ function：请求连接
 socket中的协议有一些大的分类（包括很多子协议），这些大的分类成为 协议族
 
 ### socket类型 type
-socket类型指的是 sokcet的数据传输方式
+socket类型指的是 socket的数据传输方式
 > 为什么已经确定协议族了，还需要确定数据传输方式
 > 因为一个协议族中可能存在多种数据传输方式
 
-#### 面向连接的socket （SOCK_STREM）
+#### 面向连接的socket （SOCK_STREAM）
 类似于传送带
 1. 传输过程中数据不会丢失
 2. 按序传输数据
@@ -115,4 +115,91 @@ D：多播ip地址
 ip用于区分网络里的主机，但是主机可能接收多种数据，需要多个socket，用端口号区分
 通过NIC（network interface card 网卡）接收的数据含有端口号，操作系统根据端口号，把数据传给相应端口的socket
 数据传输接收地址，需要包含ip地址和端口号，这样数据才会被传输到对应的应用程序
+
+### 地址信息
+
+#### sockaddr 结构体 和 sockaddr_in 结构体
+
+这两个结构体的作用都是**保存地址信息**
+```
+// 所有协议 地址信息
+struct sockaddr {
+    sa_family_t sin_family;   //地址族
+    char sa_data[14];         //地址 ip + port
+}
+
+// 针对 IPv4协议 地址信息
+struct sockaddr_in {
+    sa_family_t     sin_family;   //地址族
+    unit16_t        sin_port;     //16位TCP/UDP 端口号
+    struct in_addr  sin_addr;     //32位IP地址
+    char            sin_zero[8];  //对齐sockaddr
+}
+
+struct in_addr {
+    In_addr_t s_addr;             //32位ipv4地址
+}
+```
+
+#### bind函数
+`int bind(int sockfd, struct sockaddr *myaddr, socklen_t addrlen);`
+
+第二个参数需要sockaddr结构体的地址，里面包含了地址族，地址，端口号信息
+
+Question 1：为什么不直接在sockaddr填充信息，而是在sockaddr_in填充信息然后传给sockaddr
+ans: 因为sa_data没有填充的位需要置0，操作比较麻烦
+
+Question 2: sockaddr_in保存的是ipv4协议地址信息，为什么还需要有成员变量sin_family
+ans: sockaddr_in需要直接转化位sockaddr，内存需要对齐，所以需要有sin_family信息
+
+### 网络字节序
+
+CPU向内存存储数据的方式有两种
+大端序（big endian）：高位字节存放到低位地址（从内存左边开始放，起始端是最大）
+小端序（little endian）：高位字节存放到高位地址（从内存右边开始放，起始端是最小）
+
+网络字节序是大端序
+intel和amd cpu都采用小端序
+
+Q: 如何判断该主机是小端序还是大端序
+A: htons,htonl函数，转化字节序为网络字节序（大端序）,如果转化前后相等，说明是大端序，否则是小端序. 
+
+Q:为什么转化为网络字节序后，小端序cpu访问数据不同？
+A: 核心点：存储数据（写），访问数据（读）；
+大端序 写从内存左边开始，读同样也是从左边开始；
+小端序 写从内存右边开始，读同样也是从右边开始；
+
+所以如果没有转化为网络字节序，写的时候原端序，读的时候原端序，写和读时数据一致；转化为网络字节序后，存储（写）的时候变成大端序
+对于大端序来说，写读仍然都是大端序，写和读时数据一致
+对于小端序来说，写是大端序，读是小端序，写和读时数据不一致
+
+### 字符串转化为网络字节序的整数型
+```
+// 将字符串形式的ipv4地址 转化为 32位整数型数据
+in_addr_t inet_addr(const char *string);
+
+// 转化为32位整数型后，然后存入in_addr里
+int inet_aton(const char *string, struct in_addr *addr);
+
+// 32位整数型 转化为 ipv4地址
+char *inet_ntoa(struct in_addr adr);  
+//多次调用会覆盖之前的，所以调用后立马strcpy到其他变量
+```
+
+### ip地址初始化
+
+标准写法
+```
+struct sockaddr_in addr;
+char *serv_ip = "211.217.168.13";           //声明IP地址字符串
+char *serv_port = "9190";                   //声明端口号字符串
+memset(&addr, 0, sizeof(addr));             //结构体变量 addr 的所有成员初始化为0
+addr.sin_family = AF_INET;                  //指定地址族
+addr.sin_addr.s_addr = inet_addr(serv_ip);  //基于字符串的IP地址初始化
+addr.sin_port = htons(atoi(serv_port));    //基于字符串的IP地址端口号初始化
+```
+
+INADDR_ANY
+可以避免初始化ip地址，直接得到ip地址，但是注意一个主机可以有多个ip地址，取决于网卡数
+
 
