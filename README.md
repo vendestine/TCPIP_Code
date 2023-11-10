@@ -143,6 +143,8 @@ struct in_addr {
 
 #### bind函数
 `int bind(int sockfd, struct sockaddr *myaddr, socklen_t addrlen);`
+向socket分配ip地址
+成功返回0，失败时返回-1
 
 第二个参数需要sockaddr结构体的地址，里面包含了地址族，地址，端口号信息
 
@@ -155,8 +157,13 @@ ans: sockaddr_in需要直接转化位sockaddr，内存需要对齐，所以需�
 ### 网络字节序
 
 CPU向内存存储数据的方式有两种
-大端序（big endian）：高位字节存放到低位地址（从内存左边开始放，起始端是最大）
-小端序（little endian）：高位字节存放到高位地址（从内存右边开始放，起始端是最小）
+大端序（big endian）：高位字节存放到低位地址（起始端是最高字节，从左边开始）
+小端序（little endian）：高位字节存放到高位地址（起始端是最小字节，从右边开始）
+
+0x12345678,0x12是高位字节，0x78是最地位字节
+地址：0x20    0x21    0x22    0x23  低地址->高地址
+数据：0x12    0x34    0x56    0x78  // 大端序
+数据：0x78    0x56    0x34    0x12  // 小端序
 
 网络字节序是大端序
 intel和amd cpu都采用小端序
@@ -173,17 +180,33 @@ A: 核心点：存储数据（写），访问数据（读）；
 对于大端序来说，写读仍然都是大端序，写和读时数据一致
 对于小端序来说，写是大端序，读是小端序，写和读时数据不一致
 
+
+### 字节序转化 （endian conversations）
+```
+unsigned short htons(unsigned short);
+unsigned short ntohs(unsigned short);
+unsigned long htonl(unsigned long);
+unsigned long ntohl(unsigned long);
+
+h 代表主机（host）字节序, n 代表网络（network）字节序
+s 代表 short(2 bytes), l 代表 long(4 bytes)
+unsigned long = unsigned 32-bit int
+```
+
+
 ### 字符串转化为网络字节序的整数型
 ```
-// 将字符串形式的ipv4地址 转化为 32位整数型数据
+字符串形式的ipv4地址 <==> 32位整数型数据
+
+// ipv4 string -> 32-bit int
 in_addr_t inet_addr(const char *string);
+
+// 32-bit int -> ipv4 string
+char *inet_ntoa(struct in_addr adr);  
+//多次调用会覆盖之前的，所以调用后立马strcpy到其他变量
 
 // 转化为32位整数型后，然后存入in_addr里
 int inet_aton(const char *string, struct in_addr *addr);
-
-// 32位整数型 转化为 ipv4地址
-char *inet_ntoa(struct in_addr adr);  
-//多次调用会覆盖之前的，所以调用后立马strcpy到其他变量
 ```
 
 ### ip地址初始化
@@ -200,6 +223,141 @@ addr.sin_port = htons(atoi(serv_port));    //基于字符串的IP地址端口号
 ```
 
 INADDR_ANY
-可以避免初始化ip地址，直接得到ip地址，但是注意一个主机可以有多个ip地址，取决于网卡数
+可以避免初始化ip地址，直接得到ip地址，但是注意一个主机可以有多个ip地址，取决于网卡（NIC）数
 
+
+## Chapter4/5：基于TCP的服务器端/客户端
+
+> 根据数据传输方式不同，基于网络协议的socket分为TCP socket （transmission control）和 UDP socket
+
+### TCP/IP协议栈
+网络数据传输 不是通过一个大的协议解决 而是通过层次化方案TCP/IP协议栈解决 
+> 为什么使用分层协议栈？
+> 1. 协议设计更容易，不同层解决不同的问题
+> 2. 利于标准化，成为open system，这样可以让所有的产商都按照相同的标准设计，制造
+
+
+```mermaid
+graph TD;
+    应用层 <--> TCP层
+    应用层 <--> UDP层
+    TCP层 <--> IP层
+    UDP层 <--> IP层
+    IP层 <--> 链路层
+```
+各层可能通过操作系统等软件实现，也可能通过类似NIC的硬件设备实现
+
+链路层：解决物理链接的问题，同时也是物理链接领域标准化的结果，物理链接需要有主机，路由器或者交换机，还有通信链路，其中有LAN,WAN,MAN标准 （物理链接，准备传输）
+IP层：解决传输数据时的路径选择问题 （路径选择，可以传输）
+传输层：以IP层提供的路径信息为基础，解决实际的数据传输问题 （决定传输方式，怎么传输）
+应用层：编写软件，决定服务端和客户端之间的传输规则
+
+### 实现基于TCP的服务端/客户端
+
+#### TCP服务端流程
+
+```mermaid
+graph TB;
+    a["socket()： 创建socket"]
+    b["bind()：分配地址给socket"]
+    c["listen()： 服务端转化为等待连接请求状态（将socket变为server socket，创建连接请求等待队列"]
+    d["accept()： 处理连接请求（自动创建一个socket，用于数据IO操作，并且自动和客户端socket建立连接"]
+    e["read()/write(): 数据交换"]
+    f["close()：断开连接（关闭accept时的socket，关闭server socket"]
+
+    a --> b
+    b --> c
+    c --> d
+    d --> e
+    e --> f
+```
+实现代码，[hello_server.c](./chapter5/hello_server.c)
+
+
+#### TCP客户端流程
+```mermaid
+graph TB;
+    a["socket()： 创建socket"]
+    b["connect(): 发送连接请求(socket变成client socket，自动分配ip地址和端口号)"]
+    c["read()/write(): 数据交换"]
+    d["close()：断开连接（关闭client socket"]
+
+    a --> b
+    b --> c
+    c --> d
+```
+实现代码: [hello_client.c](./chapter5/hello_client.c)
+
+
+#### 服务端/客户端调用关系图
+![](./img/tcp_server_client_process.png)
+
+#### 迭代服务器端/客户端
+客户端发送连接请求前，服务器端有可能已经调用accept(),此时调用accept()会进入阻塞状态，直到客户端嗲用connect()为止
+
+上述服务器端处理完一个客户端连接请求就退出了，为了处理连接请求队列里的所有请求，我们需要反复调用accept()函数
+
+首先close accept()时创建的socket
+然后重新调用accept()函数，处理新的连接请求
+![](./img/multi_tcp_server_process.png)
+
+实现代码：
+[echo_server.c](./chapter5/echo_server.c)
+[echo_client.c](./chapter5/echo_client.c)
+
+
+#### 回声服务器端/客户端的问题
+问题不在服务器端，而是在客户端
+1. 原因
+因为服务器端，read多少字节，write多少字节；而客户端，write多少字节，read的时候不能保证同样的字节数
+2. 客户端里，提前确定read数据的大小
+
+修改后的程序：[echo_client2.c](./chapter5/echo_client2.c)
+
+
+### 计算器服务器端/客户端实现
+> motivation: 如果没办法预知接收数据长度，那么就要定义应用层协议
+> 要求：服务器端从客户端获得多个数字和运算符信息，进行加减乘运算，然后把结果传给客户端 eg: 发送请求 3，5，9，+，回应3 + 5 + 9
+
+参考实现 [op_server.c](./chapter5/op_server.c), [op_client.c](./chapter5/op_client.c)
+
+尽量自己独立实现一遍，更好的掌握TCP的服务器端/客户端的实现方法
+
+
+### TCP socket下的I/O缓冲
+write函数调用后并非立即传输数据，而是先将数据移至输出缓冲；read函数调用后也并非立即接收数据，而是从输入缓冲读取数据
+
+I/O缓冲特性
+1. 在每个socket中单独存在
+2. 创建socket的时候自动生成
+3. 关闭socket，继续发送输出缓冲中的数据
+4. 关闭socket，丢失输入缓冲中的数据
+
+那么存不存在传输数据 > 输入缓冲的情况呢
+ans: TCP中不存在，因为TCP会控制数据流，不会发生超过输入缓冲大小的数据传输
+
+### TCP工作原理
+TCP socket从创建到消失经历三步
+1. 与对方套接字建立连接
+2. 与对方套接字进行数据交换
+3. 断开与对方套接字的连接
+
+#### 与对方套接字的连接
+TCP socket建立连接，需要三次对话过程，该过程又称为**三次握手**
+> seq 序号 ack 确认号
+> SYNbit = 1，SYN标志位置1，同步消息
+> ACKbit = 1，ACK标志位置1，确认消息
+
+![](./img/three_hand_shake.png)
+1. 客户端发送同步消息（SYNbit = 1, seq = x）SYN
+2. 服务器端发送确认消息 (ACKbit = 1, ack = x + 1) 和 同步消息(SYNbit = 1, seq = y) SYN + ACK
+3. 客户端发送确认消息（ACKbit = 1, ack = y + 1）ACK
+
+#### 与对方套接字的数据交换
+ack = seq + bytes + 1
+TCP采用超时重传机制
+
+#### 断开与对方套接字的连接
+双方各发送一次FIN消息然后断开连接，需要四次对话过程，因此又称四次挥手
+![](./img/four_hand_shake.png)
 
