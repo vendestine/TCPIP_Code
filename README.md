@@ -361,3 +361,38 @@ TCP采用超时重传机制
 双方各发送一次FIN消息然后断开连接，需要四次对话过程，因此又称四次挥手
 ![](./img/four_hand_shake.png)
 
+
+## Chapter 7: 优雅地断开套接字连接
+
+### 基于TCP的半关闭
+
+close函数是完全断开连接，无法传输数据，也无法接收数据
+half close，只关闭一部分数据交换中使用的流，只能传输或接收，也就是只关闭流的一半
+
+两台主机通过套接字建立连接 进入 可交换数据 的状态 （流形成的状态）
+
+![](./img/socket_stream.png)
+
+shutdown 用来关闭其中一个流
+```
+int shutdown(int sock, int howto);
+/*
+成功时返回 0 ，失败时返回 -1
+sock: 需要断开套接字文件描述符
+howto: 传递断开方式信息
+
+SHUT_RD : 断开输入流
+SHUT_WR : 断开输出流
+SHUT_RDWR : 同时断开 I/O 流
+*/
+```
+
+**为什么需要半关闭**
+假设如下场景，服务器端给客户端传输文件，然后客户端收到后发送thank you给服务端
+如果调用close，那么同时关闭io流，这样服务器端发送EOF后，此时就无法接收thank you消息了，但是如果调用shutdown，只关闭服务器端的输出流，这样服务器端既可以发送EOF，又可以接收thank you消息
+
+### 基于半关闭的文件传输程序
+
+参考实现代码:
+[file_server.c](./chapter7/file_server.c)
+[file_client.c](./chapter7/file_client.c)
